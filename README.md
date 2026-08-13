@@ -17,9 +17,9 @@
 ## 前置条件
 
 1. **AstrBot**（≥ 4.16，< 5）
-2. **icqq-py** —— 本适配器的协议核心（随本项目附带的独立 wheel，或本地源码）：
+2. **icqq-py** —— 本适配器的协议核心（独立 wheel，需单独安装）：
    ```bash
-   # 方式一：安装随附的独立 wheel
+   # 方式一：安装独立 wheel（位于 icqq-py 的 dist/ 目录）
    pip install icqq_py-0.6.10-py3-none-any.whl
    # 方式二：安装本地移植版源码
    pip install D:\zhuomian\icqq
