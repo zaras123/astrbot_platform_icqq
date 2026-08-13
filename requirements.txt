@@ -1,10 +1,7 @@
 # icqq-py：icqq 协议库的纯 Python 移植（本项目依赖）。
-# 需单独安装，未随插件分发。安装方式任选其一：
-#   1) 独立 wheel（推荐）：
-#        pip install icqq_py-0.6.10-py3-none-any.whl
-#   2) 本地移植版源码目录：
-#        pip install D:\zhuomian\icqq
-#   若 icqq-py 已发布到 PyPI：pip install icqq-py
+# 需单独安装，未随插件分发。icqq-py 发布后从 PyPI 安装：
+#   pip install icqq-py
+# （发布前请先用已打好的独立 wheel 安装：pip install icqq_py-0.6.10-py3-none-any.whl）
 #
 # 可选：qrcode —— 终端渲染登录二维码（不装也能登录，二维码会保存为文件）
 qrcode>=7.3

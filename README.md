@@ -17,15 +17,11 @@
 ## 前置条件
 
 1. **AstrBot**（≥ 4.16，< 5）
-2. **icqq-py** —— 本适配器的协议核心（独立 wheel，需单独安装）：
+2. **icqq-py** —— 本适配器的协议核心：
    ```bash
-   # 方式一：安装独立 wheel（位于 icqq-py 的 dist/ 目录）
-   pip install icqq_py-0.6.10-py3-none-any.whl
-   # 方式二：安装本地移植版源码
-   pip install D:\zhuomian\icqq
-   # 方式三：icqq-py 已发布到 PyPI 时
    pip install icqq-py
    ```
+   > icqq-py 发布后即可从 PyPI 安装；发布前请先用已打好的独立 wheel 安装（`pip install icqq_py-0.6.10-py3-none-any.whl`）。
 3. **签名服务器**（必须）—— qsign（unidbg-fetch-qsign）或 tx-sign 均可：
    - qsign：`http://127.0.0.1:8080/sign?key=xxx`
    - tx-sign：`http://127.0.0.1:8080`（不带 key 参数）
