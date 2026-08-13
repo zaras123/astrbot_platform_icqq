@@ -44,6 +44,11 @@ CONFIG_METADATA = {
         "type": "int",
         "hint": "默认 2（aPad）。不同协议对应不同的设备信息，风控表现略有差异。",
     },
+    "ver": {
+        "description": "QQ 协议版本（留空自动获取）",
+        "type": "string",
+        "hint": "如 9.2.95，需与签名服务器协议版本一致。留空则由签名服务器自动获取。",
+    },
     "sign_api_addr": {
         "description": "签名服务器地址（必填）",
         "type": "string",
@@ -85,6 +90,7 @@ CONFIG_METADATA = {
         "uin": 0,
         "password": "",
         "platform": 2,
+        "ver": "",
         "sign_api_addr": "",
         "data_dir": "data/icqq",
         "log_level": "info",
@@ -178,6 +184,7 @@ class IcqqPlatformAdapter(Platform):
         uin = int(self.config.get("uin") or 0)
         client = Client(uin if uin else None, {
             "platform": self._resolve_platform(),
+            "ver": str(self.config.get("ver") or ""),
             "sign_api_addr": str(self.config.get("sign_api_addr") or ""),
             "data_dir": self._data_dir(),
             "log_level": str(self.config.get("log_level") or "info"),

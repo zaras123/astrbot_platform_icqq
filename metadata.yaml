@@ -5,7 +5,7 @@ desc: |
   使用 icqq-py（icqq 协议库的纯 Python 移植）将 QQ 个人号接入 AstrBot。
   支持群聊/私聊收发、图片/语音/视频/文件/引用回复/合并转发、密码与扫码登录、
   自动重连。需自备签名服务器（qsign / tx-sign）。
-version: v0.0.1
+version: v0.0.2
 author: zaras
 repo: https://github.com/zaras123/astrbot_platform_icqq
 astrbot_version: ">=4.16,<5"

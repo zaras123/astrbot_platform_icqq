@@ -43,8 +43,9 @@
 3. 重启 AstrBot（或重载插件）
 4. WebUI →「消息平台」→ 添加平台，类型选 `icqq`，填写：
    - `uin`：机器人 QQ 号（留 0 则扫码登录）
-   - `password`：密码（留空则扫码登录；可填 32 位十六进制 MD5）
+   - `password`：密码（留空则扫码登录；可填明文密码或 32 位十六进制 MD5）
    - `platform`：协议（默认 2 = aPad）
+   - `ver`：QQ 协议版本（留空自动获取，一般不用填）
    - `sign_api_addr`：签名服务器地址（**必填**）
    - 启用该平台实例
 
@@ -78,6 +79,7 @@ from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterTypeFi
 | uin | int | 机器人 QQ 号；0 = 扫码登录 |
 | password | string | 密码；空 = 扫码登录 |
 | platform | int | 1 Android / 2 aPad / 3 Watch / 4 iMac / 5 iPad / 6 Tim |
+| ver | string | QQ 协议版本（如 9.2.95），留空由签名服务器自动获取 |
 | sign_api_addr | string | 签名服务器地址（必填） |
 | data_dir | string | 数据目录（设备信息/二维码/token） |
 | log_level | string | icqq 日志级别 |
