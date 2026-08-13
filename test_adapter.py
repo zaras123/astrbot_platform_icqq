@@ -231,6 +231,38 @@ async def main():
     if real._watchdog_task:
         real._watchdog_task.cancel()
 
+    # ---- 设备锁验证状态机 ----
+    check("device verify sets state", real._verify_state == "device" and real._verify_url == "https://ssl.qq.com/1" and real._verify_phone == "138****0000")
+    real._on_online(stub)
+    check("online clears verify state", real._verify_state is None)
+
+    # ---- 设备验证自动重试（桩客户端记录 login 调用） ----
+    class RetryStub(StubClient):
+        def __init__(self):
+            super().__init__()
+            self.online = False
+            self.login_calls = 0
+
+        async def login(self, password=None):
+            self.login_calls += 1
+            # 第一次重试后模拟验证完成，上线
+            if self.login_calls >= 1:
+                self.online = True
+
+    rs = RetryStub()
+    real2 = IcqqPlatformAdapter(
+        {"id": "icqq", "uin": 123456, "password": "mypassword", "platform": 2,
+         "sign_api_addr": "", "data_dir": "data/icqq", "log_level": "error",
+         "verify_retry_interval": 1}, {}, asyncio.Queue(),
+    )
+    real2._client = rs
+    real2._verify_state = "device"
+    wd = asyncio.create_task(real2._watchdog(rs))
+    await asyncio.sleep(2.5)
+    wd.cancel()
+    check("device verify auto-retry login", rs.login_calls >= 1, f"calls={rs.login_calls}")
+    check("device verify retry then online", rs.online is True)
+
     # ---- 二维码路径记录 ----
     check("qrcode path recorded", real._qr_path.endswith("qrcode.png"), real._qr_path)
 

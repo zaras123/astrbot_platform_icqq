@@ -55,6 +55,22 @@
 
 用手机 QQ 扫该图片即可。登录成功后 token 会缓存在数据目录，下次免扫码。
 
+## 设备锁 / 登录保护验证
+
+新设备首次登录 QQ 大概率触发设备锁验证。此时日志会输出类似：
+
+```
+[icqq] ========== 设备锁/登录保护验证 ==========
+[icqq] 请在【手机 QQ】内打开下面链接完成验证（复制到浏览器无效）：https://ssl.qq.com/xxx
+[icqq] 密保手机号：138****0000
+[icqq] 验证完成后，适配器每 30 秒自动重试登录，无需其他操作
+```
+
+**操作步骤：**
+1. 用**手机 QQ**（不要用浏览器）打开日志里的链接，完成验证
+2. 若配置了密码，适配器会自动每 `verify_retry_interval` 秒重试登录，验证完成后自动登录成功
+3. 若未配置密码（扫码登录），验证完成后在 WebUI 重新启用该平台即可继续
+
 ## 在其它插件中使用 icqq
 
 AstrBot 通过 `context.register_platform_adapter_type("icqq")` 过滤器可以只响应 icqq 平台的
@@ -81,6 +97,7 @@ from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterTypeFi
 | log_level | string | icqq 日志级别 |
 | ignore_self | bool | 忽略自己的消息 |
 | reconnect_interval | int | 重连间隔（秒） |
+| verify_retry_interval | int | 设备锁验证自动重试间隔（秒，默认 30） |
 | resend | bool | 群消息风控分片重发 |
 | cache_group_member | bool | 缓存群成员 |
 

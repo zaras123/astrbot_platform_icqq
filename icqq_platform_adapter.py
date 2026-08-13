@@ -72,6 +72,11 @@ CONFIG_METADATA = {
         "description": "自动重连间隔（秒）",
         "type": "int",
     },
+    "verify_retry_interval": {
+        "description": "设备锁验证自动重试间隔（秒）",
+        "type": "int",
+        "hint": "设备锁/登录保护验证时，验证完成后每隔该秒数自动重试登录。默认 30。",
+    },
     "resend": {
         "description": "群消息被风控时分片重发",
         "type": "bool",
@@ -96,6 +101,7 @@ CONFIG_METADATA = {
         "log_level": "info",
         "ignore_self": True,
         "reconnect_interval": 5,
+        "verify_retry_interval": 30,
         "resend": True,
         "cache_group_member": True,
     },
@@ -125,6 +131,10 @@ class IcqqPlatformAdapter(Platform):
         self._connected = False
         self._qr_path: str = ""
         self._watchdog_task: asyncio.Task | None = None
+        # 登录验证状态：None / "device"(设备锁) / "slider"(滑块)
+        self._verify_state: str | None = None
+        self._verify_url: str = ""
+        self._verify_phone: str = ""
 
     # ------------------------------------------------------------------ meta
 
@@ -174,6 +184,9 @@ class IcqqPlatformAdapter(Platform):
 
     async def _login_and_idle(self) -> None:
         client = await self._build_client()
+        # 登录开始就启动看门狗（处理设备验证重试/离线重连，而不是等上线后才启动）
+        if self._watchdog_task is None or self._watchdog_task.done():
+            self._watchdog_task = asyncio.create_task(self._watchdog(client))
         await self._login(client)
         # 登录完成后保持空闲（icqq 内部的心跳/监听/重连自行运转），直到 terminate
         await self._stop_event.wait()
@@ -265,11 +278,11 @@ class IcqqPlatformAdapter(Platform):
 
     def _on_online(self, client, *args) -> None:
         self._connected = True
+        self._verify_state = None
+        self._verify_url = ""
+        self._verify_phone = ""
         nickname = getattr(client, "nickname", "") or ""
         logger.info(f"[icqq] 登录成功：{nickname} ({client.uin})")
-        # 启动离线看门狗
-        if self._watchdog_task is None or self._watchdog_task.done():
-            self._watchdog_task = asyncio.create_task(self._watchdog(client))
 
     def _on_offline(self, client, *args) -> None:
         self._connected = False
@@ -287,13 +300,26 @@ class IcqqPlatformAdapter(Platform):
 
     def _on_slider(self, client, data) -> None:
         url = (data or {}).get("url", "")
-        logger.info(f"[icqq] 收到滑动验证码，请访问：{url}")
-        self.record_error(f"需要滑动验证：{url}", None)
+        self._verify_state = "slider"
+        self._verify_url = url
+        logger.info(f"[icqq] ========== 滑动验证 ==========")
+        logger.info(f"[icqq] 请访问：{url}")
+        logger.info(f"[icqq] 完成滑块后拿到 ticket，重新启用本平台即可提交继续登录")
 
     def _on_device_verify(self, client, data) -> None:
         url = (data or {}).get("url", "")
         phone = (data or {}).get("phone", "")
-        logger.info(f"[icqq] 登录保护验证 URL：{url} 密保手机：{phone}")
+        self._verify_state = "device"
+        self._verify_url = url
+        self._verify_phone = phone
+        retry = int(self.config.get("verify_retry_interval", 30) or 30)
+        logger.info(f"[icqq] ========== 设备锁/登录保护验证 ==========")
+        logger.info(f"[icqq] 请在【手机 QQ】内打开下面链接完成验证（复制到浏览器无效）：{url}")
+        logger.info(f"[icqq] 密保手机号：{phone}")
+        if str(self.config.get("password") or ""):
+            logger.info(f"[icqq] 验证完成后，适配器每 {retry} 秒自动重试登录，无需其他操作")
+        else:
+            logger.info(f"[icqq] 验证完成后，请重新启用本平台继续登录")
 
     def _on_login_error(self, client, data) -> None:
         data = data or {}
@@ -303,23 +329,52 @@ class IcqqPlatformAdapter(Platform):
         logger.error(f"[icqq] 登录失败 [{code}] {message}")
 
     async def _watchdog(self, client: Client) -> None:
-        """离线超时自动重新登录（处理 token 过期、被踢后恢复等场景）。"""
+        """登录/在线看门狗：
+        - 设备锁验证中 → 每 verify_retry_interval 秒重试登录（密码登录场景）
+        - 一般离线超时 → 重新登录
+        """
+        loop = asyncio.get_running_loop()
+        verify_retry = int(self.config.get("verify_retry_interval", 30) or 30)
+        tick = max(1, verify_retry)
         offline_since: float | None = None
+        last_verify_retry: float = 0.0
+        has_password = bool(str(self.config.get("password") or ""))
         try:
             while not self._stop_event.is_set():
-                await asyncio.sleep(30)
+                await asyncio.sleep(tick)
                 if self._stop_event.is_set():
                     break
                 if client.isOnline():
+                    # 上线了：一切复位
+                    self._verify_state = None
                     offline_since = None
                     continue
+
+                # 设备锁验证中：密码登录场景下定期重试，用户验证完成后即可续登
+                if self._verify_state == "device":
+                    if not has_password:
+                        continue  # 扫码登录：不自动重试，等用户重新启用
+                    now = loop.time()
+                    if now - last_verify_retry >= verify_retry:
+                        last_verify_retry = now
+                        logger.info(f"[icqq] 设备验证中，{verify_retry} 秒间隔自动重试登录...")
+                        try:
+                            await self._login(client)
+                        except Exception as e:
+                            logger.debug(f"[icqq] 验证重试登录异常：{e}")
+                    continue
+
+                # 一般离线重连
                 if offline_since is None:
-                    offline_since = asyncio.get_running_loop().time()
+                    offline_since = loop.time()
                     continue
-                if asyncio.get_running_loop().time() - offline_since >= 60:
-                    logger.warning("[icqq] 客户端离线超过 60 秒，尝试重新登录...")
+                if loop.time() - offline_since >= 60:
                     offline_since = None
-                    await self._login(client)
+                    logger.warning("[icqq] 客户端离线超过 60 秒，尝试重新登录...")
+                    try:
+                        await self._login(client)
+                    except Exception as e:
+                        logger.debug(f"[icqq] 重连登录异常：{e}")
         except asyncio.CancelledError:
             pass
         except Exception as e:
