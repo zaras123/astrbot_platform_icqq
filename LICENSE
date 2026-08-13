@@ -1,0 +1,13 @@
+Mozilla Public License Version 2.0
+==================================
+
+1. Definitions
+--------------
+
+1.1. "Contributor"
+    means each individual or legal entity that creates, contributes to
+    the creation of, or owns Covered Software.
+
+... (完整 MPL-2.0 文本略，见 https://www.mozilla.org/MPL/2.0/)
+
+本适配器基于 icqq-py（MPL-2.0），使用 MPL-2.0 许可证发布。
