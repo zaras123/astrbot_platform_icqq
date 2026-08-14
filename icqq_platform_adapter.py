@@ -230,7 +230,9 @@ class IcqqPlatformAdapter(Platform):
         uin = int(self.config.get("uin") or 0)
         data_dir = self._data_dir()
         self._migrate_legacy_data_dir(data_dir)
-        client = Client(uin if uin else None, {
+        # 注意：uin 必须保持 int（0 也传 0），不能转 None —— Client(None, conf) 会把 conf 当首参
+        # 丢弃，导致 sign_api_addr 等平台配置全部丢失（扫码登录 uin=0 时尤其关键）。
+        client = Client(uin, {
             "platform": self._resolve_platform(),
             "ver": str(self.config.get("ver") or ""),
             "sign_api_addr": str(self.config.get("sign_api_addr") or ""),
