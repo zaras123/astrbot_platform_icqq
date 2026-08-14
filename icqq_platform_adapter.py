@@ -78,6 +78,11 @@ CONFIG_METADATA = {
         "type": "int",
         "hint": "设备锁/登录保护验证时，验证完成后每隔该秒数自动重试登录。默认 30。",
     },
+    "verify_port": {
+        "description": "验证中转网页端口（0=关闭）",
+        "type": "int",
+        "hint": "无浏览器/无头服务器时，开启后可用手机或其它设备打开 http://<服务器IP>:端口/ 完成验证并提交 ticket。默认 8765。",
+    },
     "resend": {
         "description": "群消息被风控时分片重发",
         "type": "bool",
@@ -103,6 +108,7 @@ CONFIG_METADATA = {
         "ignore_self": True,
         "reconnect_interval": 5,
         "verify_retry_interval": 30,
+        "verify_port": 8765,
         "resend": True,
         "cache_group_member": True,
     },
@@ -134,6 +140,7 @@ class IcqqPlatformAdapter(Platform):
         self._watchdog_task: asyncio.Task | None = None
         self._qr_poll_task: asyncio.Task | None = None
         self._slider_task: asyncio.Task | None = None
+        self._verify_server: object | None = None  # VerifyServer（懒启动）
         # 登录验证状态：None / "device"(设备锁) / "slider"(滑块)
         self._verify_state: str | None = None
         self._verify_url: str = ""
@@ -281,6 +288,12 @@ class IcqqPlatformAdapter(Platform):
         if self._slider_task:
             self._slider_task.cancel()
             self._slider_task = None
+        if self._verify_server:
+            try:
+                asyncio.create_task(self._verify_server.stop())
+            except Exception:
+                pass
+            self._verify_server = None
         if self._client:
             try:
                 self._client.terminate()
@@ -379,6 +392,46 @@ class IcqqPlatformAdapter(Platform):
             # 48 未扫描 / 53 待确认 / 其它状态 → 继续轮询
             await asyncio.sleep(interval)
 
+    async def _ensure_verify_server(self):
+        """懒启动验证中转网页（verify_port>0 时）。返回 VerifyServer 或 None。"""
+        if self._verify_server is not None:
+            return self._verify_server
+        port = int(self.config.get("verify_port", 0) or 0)
+        if port <= 0:
+            return None
+        try:
+            from icqq.verify_server import VerifyServer
+
+            ticket_file = os.path.join(self._data_dir(), "ticket.txt")
+            srv = VerifyServer(ticket_file=ticket_file, port=port)
+            await srv.start()
+            self._verify_server = srv
+        except Exception as e:
+            logger.warning(f"[icqq] 验证中转网页启动失败（verify_port={port}）：{e}")
+            self._verify_server = False
+        return self._verify_server or None
+
+    async def _update_verify_server(self, url: str, phone: str = "", state: str = "验证中", cls: str = "slider") -> None:
+        """把当前验证状态推到中转网页（URL + 二维码 + 密保手机）。"""
+        srv = await self._ensure_verify_server()
+        if not srv:
+            return
+        qr = None
+        if url:
+            try:
+                import io
+                import qrcode as _qr
+
+                buf = io.BytesIO()
+                _qr.make(url).save(buf, format="PNG")
+                qr = buf.getvalue()
+            except Exception:
+                qr = None
+        try:
+            await srv.show(url=url, phone=phone, qr_bytes=qr, state=state, cls=cls)
+        except Exception as e:
+            logger.debug(f"[icqq] 更新验证网页失败：{e}")
+
     def _on_slider(self, client, data) -> None:
         url = (data or {}).get("url", "")
         self._verify_state = "slider"
@@ -386,6 +439,8 @@ class IcqqPlatformAdapter(Platform):
         ticket_file = os.path.join(self._data_dir(), "ticket.txt")
         logger.info(f"[icqq] ========== 滑动/登录验证 ==========")
         logger.info(f"[icqq] 验证 URL：{url}")
+        # 中转网页显示验证（无浏览器服务器可用手机访问）
+        asyncio.create_task(self._update_verify_server(url, state="滑块验证", cls="slider"))
         # 若已装 playwright：自动打开浏览器，用户解决后 ticket 自动捕获写入（无需手动抠 ticket）
         asyncio.create_task(self._auto_capture_ticket(client, url, ticket_file))
         # 同时监控 ticket 文件兜底（手动写入 / 自动捕获都会写到该文件后提交）
@@ -443,6 +498,8 @@ class IcqqPlatformAdapter(Platform):
         logger.info(f"[icqq] ========== 设备锁/登录保护验证 ==========")
         logger.info(f"[icqq] 请在【手机 QQ】内打开下面链接完成验证（复制到浏览器无效）：{url}")
         logger.info(f"[icqq] 密保手机号：{phone}")
+        # 中转网页显示验证 URL + 二维码（无浏览器服务器可用手机访问）
+        asyncio.create_task(self._update_verify_server(url, phone=phone, state="设备锁验证", cls="device"))
         if str(self.config.get("password") or ""):
             logger.info(f"[icqq] 验证完成后，适配器每 {retry} 秒自动重试登录，无需其他操作")
         else:
