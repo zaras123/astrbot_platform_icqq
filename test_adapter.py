@@ -329,6 +329,38 @@ async def main():
     check("扫码轮询检测到成功并自动登录", qs.logined, f"query次数={qs.queries}")
     check("轮询确实跑了多次查询", qs.queries >= 3, f"queries={qs.queries}")
 
+    # ---- 滑块 ticket 文件监控：写入 ticket 自动 submitSlider ----
+    class SliderStub:
+        def __init__(self):
+            self.submitted = []
+
+        async def submitSlider(self, ticket):
+            self.submitted.append(ticket)
+
+        def isOnline(self):
+            return False
+
+    ss = SliderStub()
+    real4 = IcqqPlatformAdapter(
+        {"id": "icqq", "uin": 0, "platform": 2, "data_dir": "data/icqq", "log_level": "error"},
+        {}, asyncio.Queue(),
+    )
+    real4._client = ss
+    import tempfile as _tf
+
+    tfile = os.path.join(_tf.mkdtemp(), "ticket.txt")
+    w = asyncio.create_task(real4._watch_slider_ticket(ss, tfile, interval=0.05))
+    await asyncio.sleep(0.1)
+    with open(tfile, "w", encoding="utf-8") as f:
+        f.write("TICKET123")
+    for _ in range(50):
+        if ss.submitted:
+            break
+        await asyncio.sleep(0.05)
+    w.cancel()
+    check("滑块 ticket 写入自动提交", ss.submitted == ["TICKET123"], str(ss.submitted))
+    check("提交后 ticket 文件已删除", not os.path.exists(tfile))
+
     n_fail = PASS.count(False)
     print("\nRESULT:", "ALL PASS" if n_fail == 0 else f"{n_fail} FAILURES", f"({len(PASS)} checks)")
     return 1 if n_fail else 0

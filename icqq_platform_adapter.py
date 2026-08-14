@@ -133,6 +133,7 @@ class IcqqPlatformAdapter(Platform):
         self._qr_path: str = ""
         self._watchdog_task: asyncio.Task | None = None
         self._qr_poll_task: asyncio.Task | None = None
+        self._slider_task: asyncio.Task | None = None
         # 登录验证状态：None / "device"(设备锁) / "slider"(滑块)
         self._verify_state: str | None = None
         self._verify_url: str = ""
@@ -277,6 +278,9 @@ class IcqqPlatformAdapter(Platform):
         if self._qr_poll_task:
             self._qr_poll_task.cancel()
             self._qr_poll_task = None
+        if self._slider_task:
+            self._slider_task.cancel()
+            self._slider_task = None
         if self._client:
             try:
                 self._client.terminate()
@@ -321,10 +325,13 @@ class IcqqPlatformAdapter(Platform):
         self._verify_state = None
         self._verify_url = ""
         self._verify_phone = ""
-        # 已上线：停止扫码轮询（若有）
+        # 已上线：停止扫码轮询 / 滑块 ticket 监控（若有）
         if self._qr_poll_task and not self._qr_poll_task.done():
             self._qr_poll_task.cancel()
             self._qr_poll_task = None
+        if self._slider_task and not self._slider_task.done():
+            self._slider_task.cancel()
+            self._slider_task = None
         nickname = getattr(client, "nickname", "") or ""
         logger.info(f"[icqq] 登录成功：{nickname} ({client.uin})")
 
@@ -376,9 +383,55 @@ class IcqqPlatformAdapter(Platform):
         url = (data or {}).get("url", "")
         self._verify_state = "slider"
         self._verify_url = url
-        logger.info(f"[icqq] ========== 滑动验证 ==========")
-        logger.info(f"[icqq] 请访问：{url}")
-        logger.info(f"[icqq] 完成滑块后拿到 ticket，重新启用本平台即可提交继续登录")
+        ticket_file = os.path.join(self._data_dir(), "ticket.txt")
+        logger.info(f"[icqq] ========== 滑动/登录验证 ==========")
+        logger.info(f"[icqq] 验证 URL：{url}")
+        # 若已装 playwright：自动打开浏览器，用户解决后 ticket 自动捕获写入（无需手动抠 ticket）
+        asyncio.create_task(self._auto_capture_ticket(client, url, ticket_file))
+        # 同时监控 ticket 文件兜底（手动写入 / 自动捕获都会写到该文件后提交）
+        if self._slider_task is None or self._slider_task.done():
+            self._slider_task = asyncio.create_task(self._watch_slider_ticket(client, ticket_file))
+
+    async def _auto_capture_ticket(self, client, url: str, ticket_file: str) -> None:
+        """用浏览器自动打开验证页，捕获 ticket 写入 ticket_file（配合 _watch_slider_ticket 提交）。"""
+        try:
+            from icqq.captcha import capture_captcha_ticket
+
+            logger.info(f"[icqq] 已自动打开浏览器（如未弹出请手动打开验证 URL），"
+                        f"完成后 ticket 自动捕获；也可手动写入：{ticket_file}")
+            ok = await capture_captcha_ticket(url, ticket_file, timeout=300)
+            if ok:
+                logger.info("[icqq] ticket 已自动捕获写入，等待提交续登")
+            else:
+                logger.info(f"[icqq] 未自动捕获到 ticket（超时/未解决），请手动把 ticket 写入：{ticket_file}")
+        except ImportError:
+            logger.info(f"[icqq] 未安装 playwright（pip install playwright），"
+                        f"请在浏览器解决验证后手动把 ticket 写入：{ticket_file}")
+        except Exception as e:
+            logger.debug(f"[icqq] 自动捕获 ticket 异常：{e}")
+
+    async def _watch_slider_ticket(self, client, ticket_file: str, interval: float = 2) -> None:
+        """监控滑块 ticket 文件：检测到非空内容即 submitSlider 续登（自包含，无需重启）。"""
+        while not self._stop_event.is_set():
+            await asyncio.sleep(interval)
+            try:
+                if not os.path.exists(ticket_file):
+                    continue
+                with open(ticket_file, "r", encoding="utf-8", errors="replace") as f:
+                    ticket = f.read().strip()
+                if not ticket:
+                    continue
+                logger.info("[icqq] 检测到滑块 ticket，正在提交...")
+                await client.submitSlider(ticket)
+                try:
+                    os.remove(ticket_file)
+                except OSError:
+                    pass
+                logger.info("[icqq] 滑块 ticket 已提交，等待登录结果")
+                return
+            except Exception as e:
+                logger.debug(f"[icqq] 监控滑块 ticket 异常：{e}")
+                await asyncio.sleep(2)
 
     def _on_device_verify(self, client, data) -> None:
         url = (data or {}).get("url", "")
