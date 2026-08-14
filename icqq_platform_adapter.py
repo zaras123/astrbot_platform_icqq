@@ -81,7 +81,12 @@ CONFIG_METADATA = {
     "verify_port": {
         "description": "验证中转网页端口（0=关闭）",
         "type": "int",
-        "hint": "无浏览器/无头服务器时，开启后可用手机或其它设备打开 http://<服务器IP>:端口/ 完成验证并提交 ticket。默认 8765。",
+        "hint": "无浏览器/无头服务器时，开启后可用手机或其它设备打开 http://<服务器IP>:端口/ 完成验证并提交 ticket。默认 8765（默认启用）。",
+    },
+    "auto_captcha": {
+        "description": "滑块自动捕获（服务器有浏览器时用 Playwright 自动打开验证页）",
+        "type": "bool",
+        "hint": "默认启用（若服务器有 Chrome）。无头/无浏览器服务器可关闭，改用中转网页验证。",
     },
     "resend": {
         "description": "群消息被风控时分片重发",
@@ -109,6 +114,7 @@ CONFIG_METADATA = {
         "reconnect_interval": 5,
         "verify_retry_interval": 30,
         "verify_port": 8765,
+        "auto_captcha": True,
         "resend": True,
         "cache_group_member": True,
     },
@@ -438,11 +444,15 @@ class IcqqPlatformAdapter(Platform):
         self._verify_url = url
         ticket_file = os.path.join(self._data_dir(), "ticket.txt")
         logger.info(f"[icqq] ========== 滑动/登录验证 ==========")
+        port = int(self.config.get("verify_port", 0) or 0)
+        if port > 0:
+            logger.info(f"[icqq] 默认方式：用手机/其它设备打开 http://<服务器IP>:{port}/ 完成验证并提交 ticket")
         logger.info(f"[icqq] 验证 URL：{url}")
-        # 中转网页显示验证（无浏览器服务器可用手机访问）
+        # 中转网页显示验证（默认方式，无浏览器服务器可用手机访问）
         asyncio.create_task(self._update_verify_server(url, state="滑块验证", cls="slider"))
-        # 若已装 playwright：自动打开浏览器，用户解决后 ticket 自动捕获写入（无需手动抠 ticket）
-        asyncio.create_task(self._auto_capture_ticket(client, url, ticket_file))
+        # 可选：服务器有浏览器时用 Playwright 自动打开验证页捕获 ticket
+        if self.config.get("auto_captcha", True):
+            asyncio.create_task(self._auto_capture_ticket(client, url, ticket_file))
         # 同时监控 ticket 文件兜底（手动写入 / 自动捕获都会写到该文件后提交）
         if self._slider_task is None or self._slider_task.done():
             self._slider_task = asyncio.create_task(self._watch_slider_ticket(client, ticket_file))
@@ -496,9 +506,12 @@ class IcqqPlatformAdapter(Platform):
         self._verify_phone = phone
         retry = int(self.config.get("verify_retry_interval", 30) or 30)
         logger.info(f"[icqq] ========== 设备锁/登录保护验证 ==========")
+        port = int(self.config.get("verify_port", 0) or 0)
+        if port > 0:
+            logger.info(f"[icqq] 默认方式：用手机/其它设备打开 http://<服务器IP>:{port}/ 查看二维码并完成验证")
         logger.info(f"[icqq] 请在【手机 QQ】内打开下面链接完成验证（复制到浏览器无效）：{url}")
         logger.info(f"[icqq] 密保手机号：{phone}")
-        # 中转网页显示验证 URL + 二维码（无浏览器服务器可用手机访问）
+        # 中转网页显示验证 URL + 二维码（默认方式，无浏览器服务器可用手机访问）
         asyncio.create_task(self._update_verify_server(url, phone=phone, state="设备锁验证", cls="device"))
         if str(self.config.get("password") or ""):
             logger.info(f"[icqq] 验证完成后，适配器每 {retry} 秒自动重试登录，无需其他操作")
