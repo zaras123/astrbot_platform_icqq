@@ -132,6 +132,7 @@ class IcqqPlatformAdapter(Platform):
         self._connected = False
         self._qr_path: str = ""
         self._watchdog_task: asyncio.Task | None = None
+        self._qr_poll_task: asyncio.Task | None = None
         # 登录验证状态：None / "device"(设备锁) / "slider"(滑块)
         self._verify_state: str | None = None
         self._verify_url: str = ""
@@ -271,6 +272,9 @@ class IcqqPlatformAdapter(Platform):
         if self._watchdog_task:
             self._watchdog_task.cancel()
             self._watchdog_task = None
+        if self._qr_poll_task:
+            self._qr_poll_task.cancel()
+            self._qr_poll_task = None
         if self._client:
             try:
                 self._client.terminate()
@@ -315,6 +319,10 @@ class IcqqPlatformAdapter(Platform):
         self._verify_state = None
         self._verify_url = ""
         self._verify_phone = ""
+        # 已上线：停止扫码轮询（若有）
+        if self._qr_poll_task and not self._qr_poll_task.done():
+            self._qr_poll_task.cancel()
+            self._qr_poll_task = None
         nickname = getattr(client, "nickname", "") or ""
         logger.info(f"[icqq] 登录成功：{nickname} ({client.uin})")
 
@@ -331,6 +339,36 @@ class IcqqPlatformAdapter(Platform):
         # data = {"image": <png bytes>}；icqq 已把二维码保存到数据目录
         self._qr_path = os.path.join(self._data_dir(), "qrcode.png")
         logger.info(f"[icqq] 请用手机 QQ 扫码登录，二维码已保存：{self._qr_path}")
+        # 启动扫码轮询：检测到扫码成功后自动 qrcodeLogin（同 TRSS-Yunzai 思路）
+        if self._qr_poll_task is None or self._qr_poll_task.done():
+            self._qr_poll_task = asyncio.create_task(self._poll_qr(client))
+
+    async def _poll_qr(self, client, interval: float = 3) -> None:
+        """轮询扫码结果，retcode==0 时调用 qrcodeLogin 完成登录。
+
+        retcode 语义（同 icqq QrcodeResult）：0 成功 / 17 过期 / 48 未扫描 / 53 待确认 / 54 已取消。
+        其余状态码原样透传，一律继续轮询；默认最长轮询约 10 分钟（3s * 200）。
+        """
+        max_polls = 200
+        for _ in range(max_polls):
+            if self._stop_event.is_set():
+                return
+            try:
+                result = await client.queryQrcodeResult()
+            except Exception as e:
+                logger.debug(f"[icqq] 查询扫码结果异常：{e}")
+                await asyncio.sleep(interval)
+                continue
+            retcode = result.get("retcode", -1)
+            if retcode == 0:
+                logger.info("[icqq] 已扫码，正在登录...")
+                try:
+                    await client.qrcodeLogin()
+                except Exception as e:
+                    logger.error(f"[icqq] 扫码登录失败：{e}")
+                return
+            # 48 未扫描 / 53 待确认 / 其它状态 → 继续轮询
+            await asyncio.sleep(interval)
 
     def _on_slider(self, client, data) -> None:
         url = (data or {}).get("url", "")

@@ -296,6 +296,39 @@ async def main():
     # ---- 二维码路径记录 ----
     check("qrcode path recorded", real._qr_path.endswith("qrcode.png"), real._qr_path)
 
+    # ---- 扫码轮询：retcode 变 0 时自动 qrcodeLogin ----
+    class QrStub:
+        def __init__(self):
+            self.queries = 0
+            self.logined = False
+            self.retcodes = [48, 48, 0]
+
+        async def queryQrcodeResult(self):
+            r = self.retcodes[min(self.queries, len(self.retcodes) - 1)]
+            self.queries += 1
+            return {"retcode": r, "uin": 123456, "t106": b"", "t16a": b"", "t318": b"", "tgtgt": b""}
+
+        async def qrcodeLogin(self):
+            self.logined = True
+
+        def isOnline(self):
+            return False
+
+    qs = QrStub()
+    real3 = IcqqPlatformAdapter(
+        {"id": "icqq", "uin": 0, "platform": 2, "data_dir": "data/icqq", "log_level": "error"},
+        {}, asyncio.Queue(),
+    )
+    real3._client = qs
+    poll = asyncio.create_task(real3._poll_qr(qs, interval=0.05))
+    for _ in range(50):
+        if qs.logined:
+            break
+        await asyncio.sleep(0.05)
+    poll.cancel()
+    check("扫码轮询检测到成功并自动登录", qs.logined, f"query次数={qs.queries}")
+    check("轮询确实跑了多次查询", qs.queries >= 3, f"queries={qs.queries}")
+
     n_fail = PASS.count(False)
     print("\nRESULT:", "ALL PASS" if n_fail == 0 else f"{n_fail} FAILURES", f"({len(PASS)} checks)")
     return 1 if n_fail else 0
