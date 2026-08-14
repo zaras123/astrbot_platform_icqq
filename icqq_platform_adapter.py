@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import traceback
 import uuid
 from typing import Any, cast
@@ -55,9 +56,9 @@ CONFIG_METADATA = {
         "hint": "如 http://127.0.0.1:8080/sign?key=xxx（qsign）或不带 key 的 tx-sign 地址。未配置则登录/发消息大概率失败。",
     },
     "data_dir": {
-        "description": "数据目录（设备信息/二维码/token 等）",
+        "description": "数据目录基础路径（设备信息/二维码/token 等）",
         "type": "string",
-        "hint": "相对 AstrBot 工作目录。",
+        "hint": "相对 AstrBot 工作目录，默认 data/icqq。每个账号在其下建独立子目录（uin 或实例 id）。",
     },
     "log_level": {
         "description": "icqq 日志级别",
@@ -145,8 +146,39 @@ class IcqqPlatformAdapter(Platform):
         return self._client
 
     def _data_dir(self) -> str:
-        raw = str(self.config.get("data_dir") or "data/icqq")
-        return raw if os.path.isabs(raw) else os.path.join(os.getcwd(), raw)
+        """每个账号独立数据目录。
+
+        base 下再按账号建子目录：uin 已配置用账号号；扫码登录(uin=0)用平台实例 id。
+        避免多个账号共用 device.json / token 相互污染（同 TRSS-Yunzai 的 data/icqq/${id}）。
+        """
+        base = str(self.config.get("data_dir") or "data/icqq")
+        if not os.path.isabs(base):
+            base = os.path.join(os.getcwd(), base)
+        uin = int(self.config.get("uin") or 0)
+        key = str(uin) if uin else str(self.config.get("id") or "default")
+        return os.path.join(base, key)
+
+    def _migrate_legacy_data_dir(self, target: str) -> None:
+        """把旧共享目录（如 data/icqq）里的设备信息与账号 token 迁到 per-account 目录（一次性）。
+
+        仅当目标目录还没有 device.json、且旧共享目录里有 device.json 时执行；
+        只 copy 不删除旧文件，避免破坏任何仍在用旧路径的版本。
+        """
+        base = os.path.dirname(target)
+        if os.path.abspath(base) == os.path.abspath(target):
+            return
+        if os.path.exists(os.path.join(target, "device.json")):
+            return
+        src = os.path.join(base, "device.json")
+        if not os.path.exists(src):
+            return
+        os.makedirs(target, exist_ok=True)
+        shutil.copy2(src, os.path.join(target, "device.json"))
+        uin = int(self.config.get("uin") or 0)
+        if uin:
+            for name in os.listdir(base):
+                if name in (f"{uin}_token", f"{uin}_token_bak"):
+                    shutil.copy2(os.path.join(base, name), os.path.join(target, name))
 
     def _resolve_platform(self) -> QQPlatform:
         v = self.config.get("platform", 2)
@@ -195,11 +227,13 @@ class IcqqPlatformAdapter(Platform):
         if self._client is not None:
             return self._client
         uin = int(self.config.get("uin") or 0)
+        data_dir = self._data_dir()
+        self._migrate_legacy_data_dir(data_dir)
         client = Client(uin if uin else None, {
             "platform": self._resolve_platform(),
             "ver": str(self.config.get("ver") or ""),
             "sign_api_addr": str(self.config.get("sign_api_addr") or ""),
-            "data_dir": self._data_dir(),
+            "data_dir": data_dir,
             "log_level": str(self.config.get("log_level") or "info"),
             "ignore_self": bool(self.config.get("ignore_self", True)),
             "resend": bool(self.config.get("resend", True)),

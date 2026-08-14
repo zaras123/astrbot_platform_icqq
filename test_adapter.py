@@ -13,7 +13,9 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
@@ -262,6 +264,34 @@ async def main():
     wd.cancel()
     check("device verify auto-retry login", rs.login_calls >= 1, f"calls={rs.login_calls}")
     check("device verify retry then online", rs.online is True)
+
+    # ---- 每账号独立数据目录 ----
+    check("uin=0 扫码 → 目录键=实例id", os.path.basename(real._data_dir()) == "icqq", real._data_dir())
+    check("uin=123456 → 目录键=账号号", os.path.basename(real2._data_dir()) == "123456", real2._data_dir())
+
+    # ---- 旧共享目录迁移（一次性，copy 不删）----
+    with tempfile.TemporaryDirectory() as td:
+        legacy = os.path.join(td, "data", "icqq")
+        os.makedirs(legacy, exist_ok=True)
+        with open(os.path.join(legacy, "device.json"), "wb") as f:
+            f.write(b"DEVICE")
+        with open(os.path.join(legacy, "123456_token"), "wb") as f:
+            f.write(b"TOKEN")
+        mig = IcqqPlatformAdapter(
+            {"id": "icqq", "uin": 123456, "platform": 2,
+             "data_dir": os.path.join(td, "data", "icqq"), "log_level": "error"},
+            {}, asyncio.Queue(),
+        )
+        target = mig._data_dir()
+        mig._migrate_legacy_data_dir(target)
+        check("迁移 device.json", os.path.exists(os.path.join(target, "device.json")), target)
+        check("迁移账号 token", os.path.exists(os.path.join(target, "123456_token")), target)
+        # 目标已有 device.json 时不应重复迁移
+        with open(os.path.join(target, "device.json"), "wb") as f:
+            f.write(b"NEW")
+        mig._migrate_legacy_data_dir(target)
+        with open(os.path.join(target, "device.json"), "rb") as f:
+            check("已有 device.json 不覆盖", f.read() == b"NEW")
 
     # ---- 二维码路径记录 ----
     check("qrcode path recorded", real._qr_path.endswith("qrcode.png"), real._qr_path)

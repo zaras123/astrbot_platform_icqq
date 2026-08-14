@@ -55,6 +55,10 @@
 
 用手机 QQ 扫该图片即可。登录成功后 token 会缓存在数据目录，下次免扫码。
 
+> **v0.0.4 变更**：数据目录改为**每账号独立子目录**（`data/icqq/<uin>` 或扫码登录时的
+> `data/icqq/<实例id>`），避免多个账号共用 device.json/token 相互污染。首次升级会自动把旧的
+> `data/icqq/device.json` 与对应账号 token 复制到新子目录，无需手动迁移；建议升级前备份数据目录。
+
 ## 设备锁 / 登录保护验证
 
 新设备首次登录 QQ 大概率触发设备锁验证。此时日志会输出类似：
@@ -93,7 +97,7 @@ from astrbot.core.star.filter.platform_adapter_type import PlatformAdapterTypeFi
 | platform | int | 1 Android / 2 aPad / 3 Watch / 4 iMac / 5 iPad / 6 Tim |
 | ver | string | QQ 协议版本（如 9.2.95），留空由签名服务器自动获取 |
 | sign_api_addr | string | 签名服务器地址（必填） |
-| data_dir | string | 数据目录（设备信息/二维码/token） |
+| data_dir | string | 数据目录基础路径（设备信息/二维码/token）；默认 `data/icqq`，**每个账号在其下建独立子目录**（uin 已配置用账号号，扫码登录用实例 id），避免多账号共用 device.json/token |
 | log_level | string | icqq 日志级别 |
 | ignore_self | bool | 忽略自己的消息 |
 | reconnect_interval | int | 重连间隔（秒） |
