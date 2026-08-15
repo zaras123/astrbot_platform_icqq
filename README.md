@@ -17,8 +17,12 @@
 ## 前置条件
 
 1. **AstrBot**（≥ 4.16，< 5）
-2. **icqq-py** —— 本适配器的协议核心，采用**本地 wheel 依赖**（尚未发布 PyPI）：
-   `requirements.txt` 已用相对路径指向 icqq-py 仓库的 `dist/` wheel，`pip install -r requirements.txt` 会自动装上。
+2. **icqq-py** —— 本适配器的协议核心，需单独安装：
+   ```bash
+   pip install icqq-py          # PyPI 发布后
+   # 或使用本地构建的 wheel：pip install <path>/icqq_py-0.6.10-py3-none-any.whl
+   ```
+   本仓库 `requirements.txt` 只声明 `qrcode`（终端二维码渲染），**不**包含 icqq-py。
 3. **签名服务器**（必须）—— qsign（unidbg-fetch-qsign）或 tx-sign 均可：
    - qsign：`http://127.0.0.1:8080/sign?key=xxx`
    - tx-sign：`http://127.0.0.1:8080`（不带 key 参数）
@@ -28,13 +32,11 @@
 ## 安装
 
 1. 把本项目目录放到 AstrBot 的 `data/plugins/` 下（或通过 WebUI 插件市场/上传安装）
-2. 在 AstrBot 运行环境中安装依赖（一条命令装全 icqq-py + qrcode）：
+2. 在 AstrBot 运行环境中安装依赖：
    ```bash
-   pip install -r requirements.txt
+   pip install icqq-py          # 先装协议库（见前置条件 2）
+   pip install -r requirements.txt   # 本仓库依赖（qrcode）
    ```
-   > 注意：requirements.txt 里的 icqq-py wheel 是**相对路径**（`../icqq/dist/...`），
-   > 仅在适配器与 icqq-py 仓库按 `D:\zhuomian` 布局并排时有效。部署到别的机器时，
-   > 先手动装好 wheel：`pip install icqq_py-0.6.10-py3-none-any.whl` 再装 qrcode。
 3. 重启 AstrBot（或重载插件）
 4. WebUI →「消息平台」→ 添加平台，类型选 `icqq`，填写：
    - `uin`：机器人 QQ 号（留 0 则扫码登录）

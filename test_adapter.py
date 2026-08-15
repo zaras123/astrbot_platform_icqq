@@ -21,10 +21,12 @@ from pathlib import Path
 
 ADAPTER_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = ADAPTER_DIR.parent
-ICQQ_PY_DIR = Path(r"D:\zhuomian\icqq")
 
 sys.path.insert(0, str(PROJECT_DIR))
-sys.path.insert(0, str(ICQQ_PY_DIR))
+# 可选：测试时用环境变量指向本地 icqq-py 源码目录；未设置则用已安装的 icqq-py（site-packages）
+_ICQQ_PY_DIR = os.environ.get("ICQQ_PY_DIR", "")
+if _ICQQ_PY_DIR:
+    sys.path.insert(0, _ICQQ_PY_DIR)
 
 PASS = []
 
