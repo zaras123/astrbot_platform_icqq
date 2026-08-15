@@ -21,7 +21,7 @@ import json
 import re
 import time
 import uuid
-from typing import Any, Optional
+from typing import Optional
 
 from astrbot.api import logger
 from astrbot.api.message_components import (

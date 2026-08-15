@@ -9,8 +9,7 @@ import asyncio
 import os
 import shutil
 import traceback
-import uuid
-from typing import Any, cast
+from typing import cast
 
 from astrbot.api import logger
 from astrbot.api.event import MessageChain
@@ -295,11 +294,13 @@ class IcqqPlatformAdapter(Platform):
             self._slider_task.cancel()
             self._slider_task = None
         if self._verify_server:
+            srv = self._verify_server
+            self._verify_server = None
             try:
-                asyncio.create_task(self._verify_server.stop())
+                # 带超时等待关闭，避免 AstrBot 关停时留下未跑完的 fire-and-forget task
+                await asyncio.wait_for(srv.stop(), timeout=3)
             except Exception:
                 pass
-            self._verify_server = None
         if self._client:
             try:
                 self._client.terminate()
