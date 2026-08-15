@@ -407,7 +407,7 @@ class IcqqPlatformAdapter(Platform):
         if port <= 0:
             return None
         try:
-            from icqq.verify_server import VerifyServer
+            from .verify_server import VerifyServer
 
             ticket_file = os.path.join(self._data_dir(), "ticket.txt")
             srv = VerifyServer(ticket_file=ticket_file, port=port)
